@@ -44,4 +44,4 @@ def plot_state_meausres(state_abbrs):
 
 if __name__=="__main__":
     # plot_state_meausres(['US_CA'])
-    plot_state_cases(['CA'])
+    plot_state_cases(['NY'])
