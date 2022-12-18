@@ -102,12 +102,13 @@ def run_group_test(regions, test, baseline, lockdown, r, b, df, main_region=None
     full_travel_matrix = np.loadtxt('travel.csv', delimiter=',', skiprows=0)
     travel_matrix = full_travel_matrix[travel_indices, :][:, travel_indices]
     travel_matrix_normalized = travel_matrix / np.sum(travel_matrix, axis=1)
-    A = R0. * travel_matrix_normalized
+    A = np.repeat(R0, len(regions), axis=0).reshape((len(regions), len(regions), len(dates))) * travel_matrix_normalized.reshape((len(regions), len(regions), 1))
     B = np.ones((len(dates), len(regions), len(regions))) * b * travel_matrix_normalized
-    C = np.eye(len(regions)).reshape((len(dates), len(regions), len(regions)))
-    R = np.eye(len(regions)).reshape((len(dates), len(regions), len(regions))) * r
+    C = np.eye(len(regions))
+    R = np.eye(len(regions)) * r
+    A = A.transpose((2, 0, 1))
 
-    z = np.zeros((1, len(regions)))
+    z = np.zeros((len(regions), 1))
     P = np.eye(len(regions)) * 10
     zs = []
     Ps = []
@@ -116,16 +117,17 @@ def run_group_test(regions, test, baseline, lockdown, r, b, df, main_region=None
 
     for i in range(len(dates)):
         z, P = kalman_filter_predict(z, P, A[i], B[i])
-        z, P = kalman_filter_update(cases[:, i], z, P, C[i], R[i])
-        zs.append(z)
-        Ps.append(P)
         z_hats.append(z)
         P_hats.append(P)
+        z, P = kalman_filter_update(cases[:, i].reshape((len(regions), 1)), z, P, C, R)
+        zs.append(z)
+        Ps.append(P)
 
-    zs = np.array(zs).reshape((len(dates), len(regions)))
-    Ps = np.array(Ps).reshape((len(dates), len(regions), len(regions)))
+
+    # zs = np.array(zs).reshape((len(dates), len(regions)))
+    # Ps = np.array(Ps).reshape((len(dates), len(regions), len(regions)))
     z_hats = np.array(z_hats).reshape((len(dates), len(regions)))
-    P_hats = np.array(P_hats).reshape((len(dates), len(regions), len(regions)))
+    # P_hats = np.array(P_hats).reshape((len(dates), len(regions), len(regions)))
 
     if main_region is not None:
         main_region_index = regions.index(main_region)
@@ -191,7 +193,7 @@ def run_individual_test(region, test, baseline, lockdown, r, b, df, make_plot=Fa
 
 
 def rmse(predictions, targets):
-    return np.sqrt(((predictions - targets) ** 2).mean())
+    return np.sqrt(((predictions - targets.T) ** 2).mean())
 
 
 if __name__=="__main__":
@@ -238,20 +240,50 @@ if __name__=="__main__":
     # print("new york, tuned values, test")
     # def error_for_tuning(tuning_params):
     #     baseline, lockdown, r, b = tuning_params
-    #     z_hats, true_z = run_individual_test('TX', 'tuning test', baseline, lockdown, r, b, df)
+    #     z_hats, true_z = run_individual_test('TX', 'individual tuning test', baseline, lockdown, r, b, df)
     #     return rmse(true_z, z_hats)
     # start = time.time()
     # sol = minimize(error_for_tuning, [baseline, lockdown, r, b])
     # print("solution:", sol.x)
-    # z_hats, true_z = run_individual_test('NY', 'tuning test', *sol.x, df, make_plot=True)
+    # z_hats, true_z = run_individual_test('NY', 'individual tuning test', *sol.x, df, make_plot=True)
     # print(time.time() - start, "seconds")
     # print("RMSE:", rmse(true_z, z_hats), "\n")
 
     print("texas with 4 other states, lit values, test")
     start = time.time()
-    z_hats, true_z = run_group_test(['TX', 'CA', 'NY', 'CO', 'NJ'], 'group test', baseline, lockdown, r, b, df, main_region='TX')
+    z_hats, true_z = run_group_test(['TX', 'NM', 'OK', 'AR', 'LA'], '5 group lit vals test', baseline, lockdown, r, b, df, main_region='TX')
     print(time.time() - start, "seconds")
-    print("RMSE:", rmse(true_z, z_hats), "\n")
+    print("RMSE:", rmse(true_z[0], z_hats[...,0]), "\n")
+
+    print("new york with 4 other states, lit values, test")
+    start = time.time()
+    z_hats, true_z = run_group_test(['NY', 'NJ', 'CT', 'PA', 'MA'], '5 group test', baseline, lockdown, r, b, df, main_region='NY')
+    print(time.time() - start, "seconds")
+    print("RMSE:", rmse(true_z[0], z_hats[...,0]), "\n")
+
+    print("texas with 4 other states, tuned values, test")
+    def error_for_tuning(tuning_params):
+        baseline, lockdown, r, b = tuning_params
+        z_hats, true_z = run_group_test(['NY', 'NJ', 'CT', 'PA', 'MA'], '5 group test', baseline, lockdown, r, b, df)
+        return rmse(true_z, z_hats)
+    start = time.time()
+    sol = minimize(error_for_tuning, [baseline, lockdown, r, b])
+    print("solution:", sol.x)
+    z_hats, true_z = run_group_test(['TX', 'NM', 'OK', 'AR', 'LA'], '5 group test', *sol.x, df, main_region='TX')
+    print(time.time() - start, "seconds")
+    print("RMSE:", rmse(true_z[0], z_hats[...,0]), "\n")
+
+    print("new york with 4 other states, tuned values, test")
+    def error_for_tuning(tuning_params):
+        baseline, lockdown, r, b = tuning_params
+        z_hats, true_z = run_group_test(['TX', 'NM', 'OK', 'AR', 'LA'], '5 group test', baseline, lockdown, r, b, df)
+        return rmse(true_z, z_hats)
+    start = time.time()
+    sol = minimize(error_for_tuning, [baseline, lockdown, r, b])
+    print("solution:", sol.x)
+    z_hats, true_z = run_group_test(['NY', 'NJ', 'CT', 'PA', 'MA'], '5 group test', *sol.x, df, main_region='NY')
+    print(time.time() - start, "seconds")
+    print("RMSE:", rmse(true_z[0], z_hats[...,0]), "\n")
 
 
 
